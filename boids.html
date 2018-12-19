@@ -1,0 +1,346 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Boids</title>
+<body>
+<script src="pixi/pixi.min.js"></script>
+<script>
+let Application = PIXI.Application;
+
+let appHeight = 768;
+let appWidth = 768;
+
+//Create a Pixi Application
+let app = new Application({ 
+    width: appWidth, 
+    height: appHeight,                       
+    antialiasing: true, 
+    transparent: false, 
+    resolution: 1
+  }
+);
+
+let boids = [];
+let predator;
+
+document.body.appendChild(app.view);
+
+//Capture the keyboard arrow keys
+let left = keyboard(37),
+    up = keyboard(38),
+    right = keyboard(39),
+    down = keyboard(40),
+    numberOfBoids = 200;
+
+// Creat boids
+for (let i = 0; i < numberOfBoids; i++) {
+  boid = new PIXI.Graphics();
+  boid.beginFill(0x66CCFF);
+  boid.drawPolygon([
+      -4, 16,
+      4, 16,
+      0, 0,  
+  ]);
+  boid.endFill();
+  boid.x = randomInt(0, appWidth);
+  boid.y = randomInt(0, appHeight);
+  boid.vx = 1;
+  boid.vy = 1;
+  boid.id = i;
+  boids.push(boid);
+  app.stage.addChild(boid);
+}
+
+// Create predator
+predator = new PIXI.Graphics();
+predator.beginFill(0xFF0000);
+predator.drawPolygon([
+    -4, 16,
+    4, 16,
+    0, 0,  
+]);
+predator.endFill();
+predator.x = 100;
+predator.y = 100;
+predator.vx = 0;
+predator.vy = 0;
+app.stage.addChild(predator);
+
+
+// Right
+right.press = () => {
+  predator.vx = 1;
+};
+right.release = () => {
+  predator.vx = 0;
+};
+
+// Up
+up.press = () => {
+  predator.vy = -1;
+};
+up.release = () => {
+  predator.vy = 0;
+};
+
+// Down
+down.press = () => {
+  predator.vy = 1;
+};
+down.release = () => {
+  predator.vy = 0;
+};
+
+// Left
+left.press = () => {
+  predator.vx = -1;
+};
+left.release = () => {
+  predator.vx = 0;
+};
+
+app.ticker.add(delta => gameLoop(delta));
+
+let AVOID_WEIGHT = 2,
+    ALIGN_WEIGHT = 4,
+    COHESION_WEIGHT = 1,
+    AVOID_PREDATOR_WEIGHT = 1,
+    BOID_MAX_SPEED = 7,
+    PREDATOR_MAX_SPEED = 5;
+
+function gameLoop(delta){
+  boids.forEach(function(boid) {
+    alignComponent = alignment(boid);
+    cohesionComponent = cohesion(boid);
+    avoidanceComponent = avoidance(boid);
+    avoidPredatorComponent = avoidPredator(boid);
+
+    let new_x = 
+        ALIGN_WEIGHT * alignComponent.vx +
+        COHESION_WEIGHT * cohesionComponent.vx +
+        AVOID_WEIGHT * avoidanceComponent.vx +
+        AVOID_PREDATOR_WEIGHT * avoidPredatorComponent.vx;
+    let new_y = 
+        ALIGN_WEIGHT * alignComponent.vy +
+        COHESION_WEIGHT * cohesionComponent.vy +
+        AVOID_WEIGHT * avoidanceComponent.vy +
+        AVOID_PREDATOR_WEIGHT * avoidPredatorComponent.vy;
+
+    // Normalise new velocities
+    new_vs = normalise(new_x, new_y);
+
+    // Limit how much boids can turn
+    new_vs = limitTurn(boid.vx, boid.vy, new_x, new_y);
+
+    // Normalise again
+    new_vs = normalise(new_vs.vx, new_vs.vy);
+
+    boid.vx = new_vs.vx * BOID_MAX_SPEED;
+    boid.vy = new_vs.vy * BOID_MAX_SPEED;
+
+    boid.x += boid.vx;
+    boid.y += boid.vy;
+    boid.rotation = calculateRotation(boid);
+
+    // Limit to app box
+    if (boid.x > appWidth) {
+      boid.x = 0;
+    }
+    if (boid.x < 0) {
+      boid.x = appWidth;
+    }
+    if (boid.y > appHeight) {
+      boid.y = 0;
+    }
+    if (boid.y < 0) {
+      boid.y = appHeight;
+    }
+  });
+
+  predator.x += predator.vx * PREDATOR_MAX_SPEED;
+  predator.y += predator.vy * PREDATOR_MAX_SPEED;
+  predator.rotation = calculateRotation(predator);
+}
+
+function limitTurn(previousX, previousY, x, y) {
+  dotProduct = previousX * previousY + x * y;
+  lengthPrevious = Math.sqrt(previousX ** 2 + previousY ** 2);
+  lengthCurrent = Math.sqrt(x ** 2 + y ** 2);
+  angle = Math.acos(dotProduct / (lengthPrevious * lengthCurrent));
+
+  // If the turn is too great, limit the turn to avoid rapid changes of
+  //  direction
+  if (angle > 0.5) {
+    return {
+      vx: previousX + 0.25 * x,
+      vy: previousY + 0.25 * y,
+    };
+  }
+
+  return {
+    vx: x,
+    vy: y,
+  };
+}
+
+function calculateRotation(creature) {
+  let new_rotation = 0;
+
+  if (creature.vx === 0 && creature.vy === 0){
+    return creature.rotation;
+  }
+  if (creature.vy >= 0) {
+    new_rotation = Math.PI - (Math.atan(creature.vx / creature.vy));
+  } else {
+    new_rotation = 2 * Math.PI - (Math.atan(creature.vx / creature.vy));
+  }
+
+  return new_rotation;
+}
+
+function alignment(boid) {
+  let vx = 0,
+      vy = 0,
+      neighbourCount = 0;
+
+  boids.forEach(function(current_boid) {
+    if (boid.id != current_boid.id) {
+      if (boidDistance(boid, current_boid) < 100) {
+        vx += current_boid.vx;
+        vy += current_boid.vy;
+        neighbourCount ++;
+      }
+    }
+  });
+
+  vx = neighbourCount == 0 ? vx : vx / neighbourCount;
+  vy = neighbourCount == 0 ? vy : vy / neighbourCount;
+
+  return normalise(vx, vy);
+}
+
+function cohesion(boid) {
+  let vx = 0,
+      vy = 0,
+      neighbourCount = 0;
+
+  boids.forEach(function(current_boid) {
+    if (boid.id != current_boid.id) {
+      if (boidDistance(boid, current_boid) < 200) {
+        vx += current_boid.x;
+        vy += current_boid.y;
+        neighbourCount ++;
+      }
+    }
+  });
+
+  vx = neighbourCount == 0 ? vx : vx / neighbourCount;
+  vy = neighbourCount == 0 ? vy : vy / neighbourCount;
+
+  vx = vx - boid.x;
+  vy = vy - boid.y;
+
+  return normalise(vx, vy);
+}
+
+function avoidance(boid) {
+  let vx = 0,
+      vy = 0,
+      neighbourCount = 0;
+
+  boids.forEach(function(current_boid) {
+    if (boid.id != current_boid.id) {
+      const boidDistanceVal = boidDistance(boid, current_boid);
+      if (boidDistanceVal < 40) {
+        vx = vx - ((current_boid.x - boid.x) / boidDistanceVal);
+        vy = vy - ((current_boid.y - boid.y) / boidDistanceVal);
+      }
+    }
+  });
+
+  vx = neighbourCount == 0 ? vx : vx / neighbourCount;
+  vy = neighbourCount == 0 ? vy : vy / neighbourCount;
+
+  return normalise(vx, vy);
+}
+
+function avoidPredator(boid) {
+  let distanceToPredator = boidDistance(boid, predator),
+      vx = 0,
+      vy = 0;
+
+  if (distanceToPredator < 200) {
+    vx = vx - (predator.x - boid.x);
+    vy = vy - (predator.y - boid.y);
+  }
+
+  return {
+    vx: vx/10,
+    vy: vy/10,
+  };
+}
+
+function normalise(vx, vy) {
+  if (vx == 0 && vy == 0) {
+    return {
+      vx,
+      vy,
+    };
+  }
+  length = Math.sqrt((vx ** 2) + (vy ** 2));
+
+  return {
+    vx: vx / length,
+    vy: vy / length,
+  };
+}
+
+function boidDistance(boid1, boid2) {
+  let xDiff = (boid2.x - boid1.x) ** 2;
+  let yDiff = (boid2.y - boid1.y) ** 2;
+  return Math.sqrt(xDiff + yDiff);
+}
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function keyboard(keyCode) {
+  var key = {};
+  key.code = keyCode;
+  key.isDown = false;
+  key.isUp = true;
+  key.press = undefined;
+  key.release = undefined;
+  //The `downHandler`
+  key.downHandler = event => {
+    if (event.keyCode === key.code) {
+      if (key.isUp && key.press) key.press();
+      key.isDown = true;
+      key.isUp = false;
+    }
+    event.preventDefault();
+  };
+
+  //The `upHandler`
+  key.upHandler = event => {
+    if (event.keyCode === key.code) {
+      if (key.isDown && key.release) key.release();
+      key.isDown = false;
+      key.isUp = true;
+    }
+    event.preventDefault();
+  };
+
+  //Attach event listeners
+  window.addEventListener(
+    "keydown", key.downHandler.bind(key), false
+  );
+  window.addEventListener(
+    "keyup", key.upHandler.bind(key), false
+  );
+  return key;
+}
+</script>
+</body>
+
+
