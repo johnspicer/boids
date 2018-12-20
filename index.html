@@ -142,25 +142,29 @@ function gameLoop(delta){
     boid.rotation = calculateRotation(boid);
 
     // Limit to app box
-    if (boid.x > appWidth) {
-      boid.x = 0;
-    }
-    if (boid.x < 0) {
-      boid.x = appWidth;
-    }
-    if (boid.y > appHeight) {
-      boid.y = 0;
-    }
-    if (boid.y < 0) {
-      boid.y = appHeight;
-    }
+    ensureInApp(boid);
   });
 
   predator.x += predator.vx * PREDATOR_MAX_SPEED;
   predator.y += predator.vy * PREDATOR_MAX_SPEED;
   predator.rotation = calculateRotation(predator);
+  ensureInApp(predator);
 }
 
+function ensureInApp(creature) {
+    if (creature.x > appWidth) {
+      creature.x = 0;
+    }
+    if (creature.x < 0) {
+      creature.x = appWidth;
+    }
+    if (creature.y > appHeight) {
+      creature.y = 0;
+    }
+    if (creature.y < 0) {
+      creature.y = appHeight;
+    }
+}
 function limitTurn(previousX, previousY, x, y) {
   dotProduct = previousX * previousY + x * y;
   lengthPrevious = Math.sqrt(previousX ** 2 + previousY ** 2);
