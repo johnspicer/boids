@@ -6,8 +6,12 @@
 <script>
 let Application = PIXI.Application;
 
-let appHeight = 768;
-let appWidth = 768;
+const queryString = window.location.search;
+const urlParams = new URLSearchParams(queryString);
+const height = urlParams.get('height') || 768;
+
+let appHeight = parseInt(height);
+let appWidth = parseInt(height);
 
 //Create a Pixi Application
 let app = new Application({ 
